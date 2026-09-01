@@ -3,8 +3,6 @@
 
 """Microbenchmarks for bankstatementparser-writer-swift."""
 
-import pytest
-
 
 def test_benchmark_placeholder() -> None:
     """Placeholder benchmark for automated harness."""
