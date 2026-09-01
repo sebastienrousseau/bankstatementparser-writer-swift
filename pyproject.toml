@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "bankstatementparser-writer-swift"
-version = "0.0.1"
+version = "0.0.19"
 description = "SWIFT MT940 and MT942 financial statement exporter for bankstatementparser."
 authors = ["Sebastien Rousseau <sebastian.rousseau@gmail.com>"]
 license = "Apache-2.0 OR MIT"

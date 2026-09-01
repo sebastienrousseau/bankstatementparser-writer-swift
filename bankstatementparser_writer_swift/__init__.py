@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from .writer import to_mt940, to_mt942, write_mt940, write_mt942
 
-__version__ = "0.0.1"
+__version__ = "0.0.19"
 __all__ = [
     "__version__",
     "to_mt940",
