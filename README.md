@@ -1,62 +1,133 @@
-# SWIFT MT940 & MT942 Statement Exporter for Bank Statement Parser
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
 
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/sebastienrousseau/bankstatementparser-writer-swift)
+<p align="center">
+  <img
+    src="https://cloudcdn.pro/bankstatementparser/v1/logos/bankstatementparser.svg"
+    alt="bankstatementparser-writer-swift logo"
+    width="120"
+    height="120"
+  />
+</p>
 
-SWIFT MT940 Customer Statement and MT942 Interim Transaction Report export writer plugin for [`bankstatementparser`](https://github.com/sebastienrousseau/bankstatementparser).
+<h1 align="center">bankstatementparser-writer-swift</h1>
+
+<p align="center">
+  <b>SWIFT MT940 & MT942 financial statement exporter plugin for bankstatementparser.</b>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/bankstatementparser-writer-swift/"><img src="https://img.shields.io/pypi/v/bankstatementparser-writer-swift?style=for-the-badge" alt="PyPI version" /></a>
+  <a href="https://pypi.org/project/bankstatementparser-writer-swift/"><img src="https://img.shields.io/pypi/pyversions/bankstatementparser-writer-swift.svg?style=for-the-badge" alt="Python versions" /></a>
+  <a href="https://pypi.org/project/bankstatementparser-writer-swift/"><img src="https://img.shields.io/pypi/dm/bankstatementparser-writer-swift.svg?style=for-the-badge" alt="PyPI downloads" /></a>
+  <a href="https://github.com/sebastienrousseau/bankstatementparser-writer-swift/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sebastienrousseau/bankstatementparser-writer-swift/ci.yml?branch=main&label=Tests&style=for-the-badge" alt="Tests" /></a>
+  <a href="#license"><img src="https://img.shields.io/pypi/l/bankstatementparser-writer-swift?style=for-the-badge" alt="License" /></a>
+</p>
 
 ---
 
-## Features
+## Contents
 
-- **Standard SWIFT MT940 & MT942 Output**: Formats transactions with full SWIFT tags (`:20:`, `:25:`, `:28C:`, `:60F:`, `:61:`, `:86:`, `:62F:`, `:34F:`, `:90D:`, `:90C:`).
-- **Proper SWIFT Comma Separator**: Conforms to standard banking comma decimal representations (`1500,00`).
-- **Multiple Input Shapes**: Seamlessly accepts `list[Transaction]`, `pandas.DataFrame`, `list[dict]`, or any `bankstatementparser` statement parser object.
-- **100% Type Safe & Tested**: Full static typing and 100% test coverage.
+- [What is bankstatementparser-writer-swift?](#what-is-bankstatementparser-writer-swift) — the problem it solves
+- [Install](#install) — PyPI, virtualenv
+- [Quick start](#quick-start) — export statements to MT940 / MT942 in three lines
+- [Public API](#public-api) — `to_mt940`, `to_mt942`, `write_mt940`, `write_mt942`
+- [SWIFT Tag Specification](#swift-tag-specification) — standard MT tag generation
+- [Development](#development) — quality gates, tests
+- [Ecosystem](#ecosystem) — modular package suite
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## Installation
+## What is bankstatementparser-writer-swift?
 
-```bash
-pip install bankstatementparser-writer-swift
+**SWIFT MT940** (Customer Statement Message) and **MT942** (Interim Transaction Report) are the industry standard telecommunication messages used across correspondent banking and corporate treasury management.
+
+**bankstatementparser-writer-swift** serializes parsed transaction datasets back into standard SWIFT MT940 and MT942 message formats with strict field formatting.
+
+| Concern | How this writer handles it |
+| :--- | :--- |
+| **Input Flexibility** | Accepts `list[Transaction]`, `pandas.DataFrame`, or `list[dict]` |
+| **Tags Generated** | Produces `:20:` (TRN), `:25:` (Account), `:28C:` (Statement/Seq), `:60F:`/`:62F:` (Balances), `:61:` (Statement Line), `:86:` (Narrative) |
+| **Tag :61: Formatting** | Formats `YYMMDD`, Debit/Credit marker (`D`/`C`), Currency, Amount, Transaction Type (`NTRN`), and Reference |
+| **Balance Calculations** | Automatically computes opening and closing balances from transaction stream |
+
+---
+
+## Install
+
+| Channel | Command | Notes |
+| :--- | :--- | :--- |
+| PyPI | `pip install bankstatementparser-writer-swift` | Pulls in `bankstatementparser >= 0.0.19` |
+| Source | `git clone https://github.com/sebastienrousseau/bankstatementparser-writer-swift && cd bankstatementparser-writer-swift && poetry install` | For local development |
+
+Requires Python 3.10 or later. Compatible with macOS, Linux, and Windows.
+
+<details>
+<summary>Using an isolated virtual environment (recommended)</summary>
+
+```sh
+python -m venv venv
+source venv/bin/activate        # macOS/Linux
+venv\Scripts\activate           # Windows
+python -m pip install -U bankstatementparser-writer-swift
 ```
 
+</details>
+
 ---
 
-## Quickstart
+
+## Quick start
 
 ```python
-from bankstatementparser.transaction_models import Transaction
 from bankstatementparser_writer_swift import write_mt940, write_mt942
-from decimal import Decimal
-from datetime import date
+from bankstatementparser import create_parser
 
-transactions = [
-    Transaction(
-        account_id="FR7630006000011234567890189",
-        amount=Decimal("1500.00"),
-        currency="EUR",
-        booking_date=date(2026, 1, 15),
-        description="Client Payment Transfer",
-        reference="REF1234",
-    ),
-    Transaction(
-        account_id="FR7630006000011234567890189",
-        amount=Decimal("-350.25"),
-        currency="EUR",
-        booking_date=date(2026, 1, 16),
-        description="Supplier Direct Debit",
-        reference="REF5678",
-    ),
-]
+# 1. Parse statement
+parser = create_parser("statement.camt")
+transactions = parser.to_transactions()
 
-# Write to SWIFT MT940 statement
-write_mt940(transactions, "statement.940", opening_balance=Decimal("10000.00"))
+# 2. Export to standard SWIFT MT940 text document
+write_mt940(
+    transactions,
+    "statement.mt940",
+    account_id="FR7630006000011234567890189",
+    currency="EUR",
+)
 ```
 
 ---
+
+## Public API
+
+- `to_mt940(data: Any, account_id: str, currency: str = "EUR", opening_balance: Decimal = Decimal("0.00")) -> str`: Serializes transactions to MT940 text.
+- `write_mt940(data: Any, output_path: str | Path, account_id: str, currency: str = "EUR") -> Path`: Writes MT940 to file.
+- `to_mt942(data: Any, account_id: str, currency: str = "EUR") -> str`: Serializes transactions to MT942 interim report.
+- `write_mt942(data: Any, output_path: str | Path, account_id: str, currency: str = "EUR") -> Path`: Writes MT942 to file.
+
+---
+
+## Development
+
+The project enforces strict code-quality gates: 100% test and branch coverage, strict type annotations (`mypy`), style linting (`ruff`), docstring coverage (`interrogate`), and security scanning (`bandit`).
+
+```bash
+# Run test suite with branch coverage enforcement
+poetry run pytest
+
+# Type checking and linting
+poetry run mypy .
+poetry run ruff check .
+poetry run ruff format --check .
+
+# Documentation and security gates
+poetry run interrogate -v
+poetry run bandit -r . -c pyproject.toml
+```
+
+---
+
 
 ## Ecosystem
 
@@ -81,6 +152,13 @@ write_mt940(transactions, "statement.940", opening_balance=Decimal("10000.00"))
 
 ---
 
+## Contributing
+
+Contributions are welcome! Please submit an issue or pull request on GitHub. Ensure that all quality gates pass and test coverage remains at 100%.
+
+---
+
 ## License
 
-Dual-licensed under Apache 2.0 and MIT.
+This project is dual-licensed under the **Apache License 2.0** and the **MIT License**. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for full details.
+
