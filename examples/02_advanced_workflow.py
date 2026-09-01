@@ -4,7 +4,6 @@
 """Advanced workflow example for bankstatementparser-writer-swift."""
 
 
-
 def main() -> None:
     print("Running advanced bankstatementparser-writer-swift demonstration...")
 
