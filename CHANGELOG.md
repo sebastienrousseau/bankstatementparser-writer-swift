@@ -57,6 +57,9 @@ to PyPI.
   tests now cover unsupported items being dropped, a value date that
   is neither a date nor a string, and `to_mt942` with no credits or a
   blank description.
+- The branch gate failed at random: `to_mt940` skipping the `:86:`
+  line for a blank description was covered only when the fuzz test
+  drew a whitespace-only string. A fixed test now covers it.
 
 ## [0.0.19] - 2026-09-01
 
