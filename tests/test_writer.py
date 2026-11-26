@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,6 +14,11 @@ import pandas as pd
 from bankstatementparser.transaction_models import Transaction
 from hypothesis import given
 from hypothesis import strategies as st
+
+if sys.version_info >= (3, 11):  # pragma: no cover - version dependent
+    import tomllib
+else:  # pragma: no cover - version dependent
+    import tomli as tomllib
 
 from bankstatementparser_writer_swift import (
     __version__,
@@ -62,8 +68,12 @@ class DummyParserWithDataFrame:
 
 
 def test_version() -> None:
-    """Verifies that version is exposed and semantic."""
-    assert __version__ == "0.0.19"
+    """The exported version is the one pyproject.toml declares."""
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open(
+        "rb"
+    ) as handle:
+        declared = tomllib.load(handle)["tool"]["poetry"]["version"]
+    assert __version__ == declared
 
 
 def test_to_mt940_full_statement() -> None:
@@ -200,6 +210,7 @@ def test_formatting_edge_cases() -> None:
     assert _format_swift_val_date("2026-03-15") == "0315"
     assert _format_swift_val_date("2026-99-99") == "2699"
     assert _format_swift_val_date("invalid") == ""
+    assert _format_swift_val_date(20260315) == ""
 
     assert _format_swift_amount(Decimal("123.45")) == "123,45"
     assert _format_swift_amount("1,234.56") == "1234,56"
@@ -212,6 +223,37 @@ def test_formatting_edge_cases() -> None:
     assert _coerce_decimal("100.50") == Decimal("100.50")
     assert _coerce_decimal("bad") == Decimal("0.00")
     assert _coerce_decimal([1]) == Decimal("0.00")
+
+
+def test_unsupported_items_are_skipped() -> None:
+    """Items that are neither a Transaction nor a mapping are dropped."""
+    records = _normalize_records([{"amount": "1.00"}, 42, "text", None])
+    assert records == [{"amount": "1.00"}]
+
+
+def test_mt942_debits_only_and_blank_description() -> None:
+    """No :90C: line without credits, no :86: for a blank description."""
+    out = to_mt942(
+        [{"amount": "-10.00", "description": "   ", "date": "2026-03-15"}],
+        account_id="ACC1",
+    )
+    assert ":90D:1EUR10,00" in out
+    assert ":90C:" not in out
+    assert ":86:" not in out
+
+
+def test_mt940_blank_description_has_no_86_line() -> None:
+    """MT940 writes no :86: line for a whitespace-only description.
+
+    The fuzz test reaches this branch only when Hypothesis happens to
+    draw a whitespace-only string, so branch coverage depended on luck.
+    """
+    out = to_mt940(
+        [{"amount": "-10.00", "description": "   ", "date": "2026-03-15"}],
+        account_id="ACC1",
+    )
+    assert ":61:" in out
+    assert ":86:" not in out
 
 
 def test_dict_sequence_input() -> None:
