@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,6 +14,11 @@ import pandas as pd
 from bankstatementparser.transaction_models import Transaction
 from hypothesis import given
 from hypothesis import strategies as st
+
+if sys.version_info >= (3, 11):  # pragma: no cover - version dependent
+    import tomllib
+else:  # pragma: no cover - version dependent
+    import tomli as tomllib
 
 from bankstatementparser_writer_swift import (
     __version__,
@@ -62,8 +68,12 @@ class DummyParserWithDataFrame:
 
 
 def test_version() -> None:
-    """Verifies that version is exposed and semantic."""
-    assert __version__ == "0.0.19"
+    """The exported version is the one pyproject.toml declares."""
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open(
+        "rb"
+    ) as handle:
+        declared = tomllib.load(handle)["tool"]["poetry"]["version"]
+    assert __version__ == declared
 
 
 def test_to_mt940_full_statement() -> None:
