@@ -242,6 +242,20 @@ def test_mt942_debits_only_and_blank_description() -> None:
     assert ":86:" not in out
 
 
+def test_mt940_blank_description_has_no_86_line() -> None:
+    """MT940 writes no :86: line for a whitespace-only description.
+
+    The fuzz test reaches this branch only when Hypothesis happens to
+    draw a whitespace-only string, so branch coverage depended on luck.
+    """
+    out = to_mt940(
+        [{"amount": "-10.00", "description": "   ", "date": "2026-03-15"}],
+        account_id="ACC1",
+    )
+    assert ":61:" in out
+    assert ":86:" not in out
+
+
 def test_dict_sequence_input() -> None:
     """Tests sequence of mapping dicts."""
     records = [
