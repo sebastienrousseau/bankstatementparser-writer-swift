@@ -7,11 +7,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
+import pytest
 from bankstatementparser.transaction_models import Transaction
 
 from bankstatementparser_writer_swift import to_mt940
 
 
+# A throughput threshold measures the writer, not coverage's tracer:
+# without sys.monitoring (CPython 3.10 and 3.11) tracing every line of
+# eight threads made the same work several times slower on CI runners.
+@pytest.mark.no_cover
 def test_swift_writer_concurrency() -> None:
     """Verify SWIFT MT940 export throughput under concurrent execution."""
     txns = [
