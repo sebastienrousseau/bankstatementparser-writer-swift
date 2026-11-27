@@ -2,16 +2,6 @@
   "bankstatementparser_writer_swift/writer.py::_normalize_records": {
     "cyclomatic": 11
   },
-  "bankstatementparser_writer_swift/writer.py::to_mt940": {
-    "cognitive": 22,
-    "cyclomatic": 22,
-    "lines": 92
-  },
-  "bankstatementparser_writer_swift/writer.py::to_mt942": {
-    "cognitive": 19,
-    "cyclomatic": 16,
-    "lines": 92
-  },
   "tests/test_suite_conformance.py": {
     "file_lines": 678
   },
