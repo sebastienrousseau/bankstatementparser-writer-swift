@@ -46,8 +46,8 @@ write_mt940() / write_mt942(): the text -> UTF-8 file -> Path
 - **One normalised shape, one entry writer.** Every input becomes a list
   of dicts, and both messages write their transactions with `_entry`, so
   MT940 and MT942 cannot drift apart on the `:61:` format.
-- **One tag per line.** SWIFT has no escaping, so every value goes
-  has its line breaks joined (`_one_line` for the header, inline in
+- **One tag per line.** SWIFT has no escaping, so every value has
+  its line breaks joined (`_one_line` for the header, inline in
   `_entry` for each record); the fuzz target checks that no line starts
   without a tag.
 - **Never raise on a bad value.** An unparseable, NaN, infinite or
