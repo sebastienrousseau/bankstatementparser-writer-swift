@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -69,13 +69,37 @@ def _format_swift_amount(val: Any) -> str:
     return s.replace(".", ",")
 
 
+_CENT = Decimal("0.01")
+
+
 def _coerce_decimal(val: Any) -> Decimal:
-    """Coerce amount values to Decimal."""
+    """Coerce amount values to a finite, ledger-sized Decimal.
+
+    NaN, infinite and out-of-range amounts become 0.00, as an
+    unparseable one does: SWIFT has no way to write them, a NaN raises
+    on the credit/debit test, and "1E+999999999" (finite, but beyond 28
+    significant digits at cent precision) would expand to a billion
+    digits.
+    """
+    amount = _parse_decimal(val)
+    if not amount.is_finite():
+        return Decimal("0.00")
+    try:
+        amount.quantize(_CENT)
+    except InvalidOperation:
+        return Decimal("0.00")
+    return amount
+
+
+def _parse_decimal(val: Any) -> Decimal:
+    """Parse the supported amount types to Decimal (possibly non-finite)."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return Decimal("0.00")
     if isinstance(val, Decimal):
         return val
-    if isinstance(val, (int, float)):
+    if isinstance(val, int):
+        return Decimal(val)
+    if isinstance(val, float):
         return Decimal(f"{val:.2f}")
     if isinstance(val, str):
         clean = val.strip().replace(",", "")
@@ -84,6 +108,15 @@ def _coerce_decimal(val: Any) -> Decimal:
         except Exception:
             return Decimal("0.00")
     return Decimal("0.00")
+
+
+def _one_line(value: Any, joiner: str = " ") -> str:
+    """``value`` as text on one line, its line breaks joined by ``joiner``.
+
+    SWIFT messages are one tag per line, so a line break inside a value
+    would start a tag, or with ``-}`` end the message, of its own.
+    """
+    return joiner.join(str(value).splitlines())
 
 
 def _normalize_records(
@@ -133,6 +166,87 @@ def _normalize_records(
     return records
 
 
+def _infer_account_and_currency(
+    records: list[dict[str, Any]], account_id: str | None, currency: str
+) -> tuple[str, str]:
+    """Fill the account from the first record that has one, and the
+    currency from the last, when the caller left the default ``EUR``."""
+    inferred_acct = account_id
+    inferred_curr = currency
+    for rec in records:
+        if not inferred_acct and rec.get("account_id"):
+            inferred_acct = str(rec["account_id"])
+        if currency == "EUR" and rec.get("currency"):
+            inferred_curr = str(rec["currency"])
+    return _one_line(inferred_acct or "0000000000"), _one_line(inferred_curr)
+
+
+def _header(transaction_ref: str, account: str, number: str) -> list[str]:
+    """The ``:20:``, ``:25:`` and ``:28C:`` lines."""
+    return [
+        f":20:{_one_line(transaction_ref)}",
+        f":25:{account}",
+        f":28C:{_one_line(number)}",
+    ]
+
+
+def _balance(tag: str, amount: Decimal, when: str, currency: str) -> str:
+    """A ``:60F:`` or ``:62F:`` balance line."""
+    side = "C" if amount >= 0 else "D"
+    return f"{tag}{side}{when}{currency}{_format_swift_amount(amount)}"
+
+
+def _date_bounds(records: list[dict[str, Any]]) -> tuple[str, str]:
+    """The first and last record dates as YYMMDD (today when none)."""
+    dates = [
+        rec.get("date") or rec.get("booking_date")
+        for rec in records
+        if (rec.get("date") or rec.get("booking_date")) is not None
+    ]
+    first = _format_swift_date(dates[0]) if dates else _format_swift_date(None)
+    last = _format_swift_date(dates[-1]) if dates else first
+    return _one_line(first), _one_line(last)
+
+
+def _entry(rec: Mapping[str, Any]) -> tuple[Decimal, list[str]]:
+    """The record's amount and its ``:61:`` (and ``:86:``) lines."""
+    amt = _coerce_decimal(rec.get("amount"))
+    indicator = "C" if amt > 0 else "D"
+    book_dt = _one_line(
+        _format_swift_date(rec.get("date") or rec.get("booking_date"))
+    )
+    val_dt = _one_line(_format_swift_val_date(rec.get("value_date")))
+    ref = _one_line(
+        rec.get("reference") or rec.get("transaction_id") or "NONREF", ""
+    )[:16]
+    lines = [
+        f":61:{book_dt}{val_dt}{indicator}{_format_swift_amount(amt)}"
+        f"NTRF{ref}//NONREF"
+    ]
+    desc = _one_line(rec.get("description") or "Transaction").strip()
+    if desc:
+        lines.append(f":86:{desc[:65]}")
+    return amt, lines
+
+
+def _summary(amounts: list[Decimal], currency: str) -> list[str]:
+    """The MT942 ``:90D:`` and ``:90C:`` debit and credit summaries."""
+    debits = [abs(amt) for amt in amounts if not amt > 0]
+    credits = [amt for amt in amounts if amt > 0]
+    lines = []
+    if debits:
+        total = sum(debits, Decimal("0.00"))
+        lines.append(
+            f":90D:{len(debits)}{currency}{_format_swift_amount(total)}"
+        )
+    if credits:
+        total = sum(credits, Decimal("0.00"))
+        lines.append(
+            f":90C:{len(credits)}{currency}{_format_swift_amount(total)}"
+        )
+    return lines
+
+
 def to_mt940(
     data: (
         Sequence[Transaction]
@@ -161,69 +275,17 @@ def to_mt940(
     """
     records = _normalize_records(data)
     op_bal = _coerce_decimal(opening_balance)
-
-    inferred_acct = account_id
-    inferred_curr = currency
-
-    for rec in records:
-        if not inferred_acct and rec.get("account_id"):
-            inferred_acct = str(rec["account_id"])
-        if currency == "EUR" and rec.get("currency"):
-            inferred_curr = str(rec["currency"])
-
-    inferred_acct = inferred_acct or "0000000000"
-
-    dates = [
-        rec.get("date") or rec.get("booking_date")
-        for rec in records
-        if (rec.get("date") or rec.get("booking_date")) is not None
-    ]
-    first_dt = (
-        _format_swift_date(dates[0]) if dates else _format_swift_date(None)
-    )
-    last_dt = _format_swift_date(dates[-1]) if dates else first_dt
-
-    lines: list[str] = [
-        f":20:{transaction_ref}",
-        f":25:{inferred_acct}",
-        f":28C:{statement_number}",
-        f":60F:{'C' if op_bal >= 0 else 'D'}{first_dt}{inferred_curr}{_format_swift_amount(op_bal)}",
-    ]
-
+    acct, curr = _infer_account_and_currency(records, account_id, currency)
+    first_dt, last_dt = _date_bounds(records)
+    lines = _header(transaction_ref, acct, statement_number)
+    lines.append(_balance(":60F:", op_bal, first_dt, curr))
     running_bal = op_bal
-
     for rec in records:
-        amt = _coerce_decimal(rec.get("amount"))
+        amt, entry = _entry(rec)
         running_bal += amt
-        indicator = "C" if amt > 0 else "D"
-        book_dt = _format_swift_date(
-            rec.get("date") or rec.get("booking_date")
-        )
-        val_dt = _format_swift_val_date(rec.get("value_date"))
-        amt_swift = _format_swift_amount(amt)
-        ref = str(
-            rec.get("reference") or rec.get("transaction_id") or "NONREF"
-        ).replace("\n", "")[:16]
-
-        # Tag :61:
-        lines.append(
-            f":61:{book_dt}{val_dt}{indicator}{amt_swift}NTRF{ref}//NONREF"
-        )
-
-        # Tag :86:
-        desc = (
-            str(rec.get("description") or "Transaction")
-            .replace("\n", " ")
-            .strip()
-        )
-        if desc:
-            lines.append(f":86:{desc[:65]}")
-
-    lines.append(
-        f":62F:{'C' if running_bal >= 0 else 'D'}{last_dt}{inferred_curr}{_format_swift_amount(running_bal)}"
-    )
+        lines.extend(entry)
+    lines.append(_balance(":62F:", running_bal, last_dt, curr))
     lines.append("-}")
-
     return "\n".join(lines) + "\n"
 
 
@@ -252,71 +314,16 @@ def to_mt942(
         Formatted SWIFT MT942 string.
     """
     records = _normalize_records(data)
-    inferred_acct = account_id
-    inferred_curr = currency
-
+    acct, curr = _infer_account_and_currency(records, account_id, currency)
+    lines = _header(transaction_ref, acct, statement_number)
+    lines.append(f":34F:{curr}0,00")
+    lines.append(f":13D:{datetime.now().strftime('%y%m%d%H%M')}+0000")
+    amounts = []
     for rec in records:
-        if not inferred_acct and rec.get("account_id"):
-            inferred_acct = str(rec["account_id"])
-        if currency == "EUR" and rec.get("currency"):
-            inferred_curr = str(rec["currency"])
-
-    inferred_acct = inferred_acct or "0000000000"
-
-    lines: list[str] = [
-        f":20:{transaction_ref}",
-        f":25:{inferred_acct}",
-        f":28C:{statement_number}",
-        f":34F:{inferred_curr}0,00",
-        f":13D:{datetime.now().strftime('%y%m%d%H%M')}+0000",
-    ]
-
-    total_debit = Decimal("0.00")
-    total_credit = Decimal("0.00")
-    num_debit = 0
-    num_credit = 0
-
-    for rec in records:
-        amt = _coerce_decimal(rec.get("amount"))
-        if amt > 0:
-            total_credit += amt
-            num_credit += 1
-            indicator = "C"
-        else:
-            total_debit += abs(amt)
-            num_debit += 1
-            indicator = "D"
-
-        book_dt = _format_swift_date(
-            rec.get("date") or rec.get("booking_date")
-        )
-        val_dt = _format_swift_val_date(rec.get("value_date"))
-        amt_swift = _format_swift_amount(amt)
-        ref = str(
-            rec.get("reference") or rec.get("transaction_id") or "NONREF"
-        ).replace("\n", "")[:16]
-
-        lines.append(
-            f":61:{book_dt}{val_dt}{indicator}{amt_swift}NTRF{ref}//NONREF"
-        )
-
-        desc = (
-            str(rec.get("description") or "Transaction")
-            .replace("\n", " ")
-            .strip()
-        )
-        if desc:
-            lines.append(f":86:{desc[:65]}")
-
-    if num_debit > 0:
-        lines.append(
-            f":90D:{num_debit}{inferred_curr}{_format_swift_amount(total_debit)}"
-        )
-    if num_credit > 0:
-        lines.append(
-            f":90C:{num_credit}{inferred_curr}{_format_swift_amount(total_credit)}"
-        )
-
+        amt, entry = _entry(rec)
+        amounts.append(amt)
+        lines.extend(entry)
+    lines.extend(_summary(amounts, curr))
     lines.append("-}")
     return "\n".join(lines) + "\n"
 

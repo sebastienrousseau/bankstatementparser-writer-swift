@@ -11,6 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from bankstatementparser.transaction_models import Transaction
 from hypothesis import given
 from hypothesis import strategies as st
@@ -295,3 +296,59 @@ def test_fuzz_to_mt940(amount: Decimal, desc: str) -> None:
     out = to_mt940(txs)
     assert ":20:" in out
     assert "-}" in out
+
+
+_TAGS = (":20:", ":25:", ":28C:", ":60F:", ":61:", ":86:", ":62F:")
+_TAGS_942 = (":20:", ":25:", ":28C:", ":34F:", ":13D:", ":61:", ":86:")
+
+
+@pytest.mark.parametrize("writer", [to_mt940, to_mt942])
+@pytest.mark.parametrize(
+    "amount", ["NaN", "-Infinity", Decimal("sNaN"), "1E+999999", 10**400]
+)
+def test_unwritable_amount_is_written_as_zero(writer, amount) -> None:
+    """NaN, infinite and out-of-range amounts become 0,00 like bad text.
+
+    "NaN" raised decimal.InvalidOperation on the credit/debit test,
+    "Infinity" was written as "Infinity" in the :61: amount, and
+    "1E+999999999" would expand to a billion digits.
+    """
+    message = writer([{"amount": amount, "date": "2026-01-02"}])
+    statement = next(
+        line for line in message.split("\n") if line.startswith(":61:")
+    )
+    assert statement.startswith(":61:260102D0,00NTRF")
+    assert len(message) < 2000
+
+
+@pytest.mark.parametrize(
+    ("writer", "tags"), [(to_mt940, _TAGS), (to_mt942, _TAGS_942)]
+)
+@pytest.mark.parametrize(
+    "field",
+    [
+        "date",
+        "value_date",
+        "description",
+        "reference",
+        "account_id",
+        "currency",
+    ],
+)
+def test_line_breaks_in_a_field_cannot_forge_a_tag(
+    writer, tags, field
+) -> None:
+    """Every value stays on its tag's line.
+
+    An account, currency, date or reference holding a line break was
+    written as is (the description and reference dropped only "\\n"),
+    so record text could start a forged ":61:" line or end the message.
+    """
+    message = writer([{field: "X1\n:61:FORGED\r-}\nY"}])
+    lines = message.split("\n")
+    assert lines[-2:] == ["-}", ""]
+    assert all(
+        line.startswith(tags + (":90D:", ":90C:")) for line in lines[:-2]
+    )
+    assert sum(line.startswith(":61:") for line in lines) == 1
+    assert "\r" not in message
