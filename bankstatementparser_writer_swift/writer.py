@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -69,26 +69,20 @@ def _format_swift_amount(val: Any) -> str:
     return s.replace(".", ",")
 
 
-_CENT = Decimal("0.01")
-
-
 def _coerce_decimal(val: Any) -> Decimal:
     """Coerce amount values to a finite, ledger-sized Decimal.
 
     NaN, infinite and out-of-range amounts become 0.00, as an
     unparseable one does: SWIFT has no way to write them, a NaN raises
-    on the credit/debit test, and "1E+999999999" (finite, but beyond 28
-    significant digits at cent precision) would expand to a billion
-    digits.
+    on the credit/debit test, and "1E+999999999" (finite, but 1E+26 or
+    more needs over 28 significant digits at cent precision) would
+    expand to a billion digits. ``adjusted()`` keeps the check cheap,
+    as this runs once per record.
     """
     amount = _parse_decimal(val)
-    if not amount.is_finite():
-        return Decimal("0.00")
-    try:
-        amount.quantize(_CENT)
-    except InvalidOperation:
-        return Decimal("0.00")
-    return amount
+    if amount.is_finite() and amount.adjusted() < 26:
+        return amount
+    return Decimal("0.00")
 
 
 def _parse_decimal(val: Any) -> Decimal:
@@ -212,18 +206,27 @@ def _entry(rec: Mapping[str, Any]) -> tuple[Decimal, list[str]]:
     """The record's amount and its ``:61:`` (and ``:86:``) lines."""
     amt = _coerce_decimal(rec.get("amount"))
     indicator = "C" if amt > 0 else "D"
-    book_dt = _one_line(
-        _format_swift_date(rec.get("date") or rec.get("booking_date"))
+    # _one_line's work, inline: this runs for every record.
+    book_dt = " ".join(
+        _format_swift_date(
+            rec.get("date") or rec.get("booking_date")
+        ).splitlines()
     )
-    val_dt = _one_line(_format_swift_val_date(rec.get("value_date")))
-    ref = _one_line(
-        rec.get("reference") or rec.get("transaction_id") or "NONREF", ""
+    val_dt = " ".join(
+        _format_swift_val_date(rec.get("value_date")).splitlines()
+    )
+    ref = "".join(
+        str(
+            rec.get("reference") or rec.get("transaction_id") or "NONREF"
+        ).splitlines()
     )[:16]
     lines = [
         f":61:{book_dt}{val_dt}{indicator}{_format_swift_amount(amt)}"
         f"NTRF{ref}//NONREF"
     ]
-    desc = _one_line(rec.get("description") or "Transaction").strip()
+    desc = " ".join(
+        str(rec.get("description") or "Transaction").splitlines()
+    ).strip()
     if desc:
         lines.append(f":86:{desc[:65]}")
     return amt, lines
