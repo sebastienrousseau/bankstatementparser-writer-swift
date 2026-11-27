@@ -16,8 +16,9 @@ In lockstep with the suite's 0.0.36 release.
 - `to_mt940` and `to_mt942` raised `decimal.InvalidOperation` on an
   amount of `"NaN"`, wrote `"Infinity"` into the `:61:` amount, and
   would expand `"1E+999999999"` to a billion digits. NaN, infinite and
-  out-of-range amounts (beyond 28 significant digits at cent precision)
-  are now written as `0,00`, as unparseable text already was.
+  out-of-range amounts (1E+26 or more, beyond 28 significant digits at
+  cent precision) are now written as `0,00`, as unparseable text
+  already was.
 - A line break in an account, currency, date, value date or reference
   was written as is (the description and reference dropped only
   `"\n"`), so record text could start a forged `:61:` line or end the
@@ -62,6 +63,9 @@ In lockstep with the suite's 0.0.36 release.
   ceilings (cyclomatic 22 and 16, 92 lines each) and none of the new
   functions is, so the complexity baseline shrinks from seven
   offenders to five.
+- `test_swift_writer_concurrency` runs without coverage measurement
+  (`no_cover`), so its unchanged 5 s throughput limit times the writer
+  rather than the coverage tracer on CPython 3.10 and 3.11.
 - CI tests on ubuntu, macOS and Windows with CPython 3.10 to 3.14
   (Linux only before), and every action is pinned by commit SHA except
   the SLSA generator, which must be referenced by tag.

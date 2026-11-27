@@ -21,7 +21,7 @@ _normalize_records()                 -> list[dict]
         |       _format_swift_date()        YYMMDD
         |       _format_swift_val_date()    MMDD
         |       _format_swift_amount()      1234,56
-        |       _one_line()                 line breaks become spaces
+        |       splitlines() join           line breaks become spaces
         v
 to_mt940(): header, _balance(:60F:), entries, _balance(:62F:), -}
 to_mt942(): header, :34F:, :13D:, entries, _summary(:90D:/:90C:), -}
@@ -47,7 +47,8 @@ write_mt940() / write_mt942(): the text -> UTF-8 file -> Path
   of dicts, and both messages write their transactions with `_entry`, so
   MT940 and MT942 cannot drift apart on the `:61:` format.
 - **One tag per line.** SWIFT has no escaping, so every value goes
-  through `_one_line`; the fuzz target checks that no line starts
+  has its line breaks joined (`_one_line` for the header, inline in
+  `_entry` for each record); the fuzz target checks that no line starts
   without a tag.
 - **Never raise on a bad value.** An unparseable, NaN, infinite or
   out-of-range amount becomes `0,00` and a missing date becomes today,

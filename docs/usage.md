@@ -22,7 +22,7 @@ Each record becomes a `:61:` line and, when it has text, an `:86:` line:
 | `:61:` booking date | `date`, else `booking_date`, as `YYMMDD` (a `Transaction` gives its booking date); another string keeps its first six characters after removing `-`, another value its first six characters; no date gives today |
 | `:61:` value date | `value_date` as `MMDD` when it is a date or an ISO date string; a string shaped like an ISO date that is not one keeps characters 3 to 6 after removing `-`; anything else leaves it out (a `Transaction` gives its value date, else its booking date) |
 | `:61:` mark | `C` when the amount is above zero, otherwise `D` |
-| `:61:` amount | The absolute amount with two decimals and a decimal comma; unparseable, NaN, infinite or out-of-range (beyond 28 significant digits at cent precision) amounts become `0,00` |
+| `:61:` amount | The absolute amount with two decimals and a decimal comma; unparseable, NaN, infinite or out-of-range (1E+26 or more, beyond 28 significant digits at cent precision) amounts become `0,00` |
 | `:61:` reference | `reference`, else `transaction_id`, else `NONREF`, cut to 16 characters, then `//NONREF` |
 | `:86:` | `description`, else `Transaction`, cut to 65 characters |
 
