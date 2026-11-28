@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sebastienrousseau/bankstatementparser-writer-swift/main/.github/demo.gif" alt="A terminal printing the installed version, 0.0.36, then the two examples: two transactions written as an MT940 statement, and a CSV statement converted to MT940, parsed back into four transactions and summarised as MT942 debit and credit totals" width="100%" />
+  <img src="https://raw.githubusercontent.com/sebastienrousseau/bankstatementparser-writer-swift/main/.github/demo.gif" alt="A terminal printing the installed version, 0.0.37, then the two examples: two transactions written as an MT940 statement, and a CSV statement converted to MT940, parsed back into four transactions and summarised as MT942 debit and credit totals" width="100%" />
 </p>
 
 ---
